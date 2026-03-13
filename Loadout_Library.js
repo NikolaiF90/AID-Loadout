@@ -306,7 +306,7 @@ F90.run = function(hook)
 
 // ============================================
 // LOADOUT - Standalone inventory and equipment
-// v1.0.0 by PrinceF90
+// v1.1.0 by PrinceF90
 // ============================================
 
 const LOADOUT_CONFIG =
@@ -525,8 +525,6 @@ function readLoadoutFromCard(character)
   return true;
 }
 
-// Adds an item to a character's inventory.
-// Optionally removes it from another character first.
 function takeItem(caller, item, receiver)
 {
   const source = receiver ? F90.findCharacter(receiver) : null;
@@ -535,14 +533,12 @@ function takeItem(caller, item, receiver)
   if (source)
   {
     const idx = source.inventory.findIndex(i => i.toLowerCase() === item.toLowerCase())
+    
+    // Item not found on source - return failure narrative
     if (idx === -1)
-    {
-      // Item not exist - the source doesnt have it
-      replaceActText(`look for ${item} on ${source.name}, but cannot find it.`);
+      return `look for ${item} on ${source.name}, but cannot find it.`;
 
-      return false;
-    }
-
+    // Remove from source before adding to caller
     source.inventory.splice(idx, 1);
     writeLoadoutToCard(source);
   }
@@ -551,73 +547,61 @@ function takeItem(caller, item, receiver)
   caller.inventory.push(item);
   writeLoadoutToCard(caller);
 
-  return true;
+  return null;
 }
 
-// Removes an item from a character's inventory.
 function dropItem(caller, item)
 {
   const idx = caller.inventory.findIndex(i => i.toLowerCase() === item.toLowerCase());
+  
+  // Item not in inventory - return failure narrative
   if (idx === -1)
-  {
-    replaceActText(`reach for ${item}, but realize it isn't there.`);
-    
-    return false;
-  }
+    return `about to take out something but realize it's nowhere to be found.`;
 
   // remove from caller inventory
   caller.inventory.splice(idx, 1);
   writeLoadoutToCard(caller);
 
-  return true;
+  return null;
 }
 
-// Transfers an item from caller to another character.
 function giveItem(caller, item, receiver)
 {
   const idx = caller.inventory.findIndex(i => i.toLowerCase() === item.toLowerCase());
+  
+  // Item not in caller inventory
   if (idx === -1)
-  {
-    replaceActText(`about to give something but realize it's nowhere to be found.`);
-    
-    return false;
-  }
+    return `about to give something but realize it's nowhere to be found.`;
 
   const to = receiver ? F90.findCharacter(receiver) : null;
+  
+  // Receiver not found or not specified
   if (!to)
-  {
-    replaceActText(`look around, unsure who to give the ${item} to.`);
-    
-    return false;
-  }
+    return `look around, unsure who to give the ${item} to.`;
 
-  // remove from caller
+  // Transfer item
   caller.inventory.splice(idx, 1);
-  // add to receiver
   to.inventory.push(item);
 
-  // update both card
+  // Update both card
   writeLoadoutToCard(caller);
   writeLoadoutToCard(to);
 
-  return true;
+  return null;
 }
 
-// Removes an item from caller's inventory. No receiver tracking.
 function hurlItem(caller, item)
 {
   const idx = caller.inventory.findIndex(i => i.toLowerCase() === item.toLowerCase());
+  
+  // Item not in inventory - return failure narrative
   if (idx === -1)
-  {
-    replaceActText(`reach for ${item} to throw, but realize it isn't there.`);
-    
-    return false;
-  }
+    return `about to throw something but realize it's nowhere to be found.`;
 
   caller.inventory.splice(idx, 1);
   writeLoadoutToCard(caller);
 
-  return true;
+  return null;
 }
 
 // Parses item and optional receiver from remaining act_ text.
@@ -662,16 +646,15 @@ function parseActItemReceiver(remainingText)
   return { item: extractItem(raw), receiver };
 }
 
-// Replace text. Different from F90.setText()
-function replaceActText(replacement)
+function replaceActText(matched, replacement)
 {
-  F90.setText(F90.getTextSnapshot().replace(new RegExp(LOADOUT_CONFIG.ACT_PREFIX + "[^\\n]*", "i"), replacement));
+  // Use current text, not snapshot - snapshot is stale after first command mutates text
+  F90.setText(text.replace(matched, replacement));
 }
 
-// Handles act_ prefixed player input. Routes to inventory actions.
 function handleActCommand(actText)
 {
-  // Slice the text from prefiz
+  // Raw command e.g act_give
   const raw = actText.slice(LOADOUT_CONFIG.ACT_PREFIX.length).trim().toLowerCase();
 
   let action          = null;
@@ -681,42 +664,53 @@ function handleActCommand(actText)
   {
     for (const keyword of keywords)
     {
-      if (raw.startsWith(keyword))
+      // Word boundary check - allows natural verb conjugations (hands, handing, handed)
+      if (new RegExp("^" + keyword + "(?:s|ed|ing)?(?:\\s|$)").test(raw))
       {
         action         = actionType;
         matchedKeyword = keyword;
+
         break;
       }
     }
     if (action) break;
   }
 
+  // No matching action keyword found
   if (!action)
   {
     log(`Loadout > handleActCommand: unknown action — ${raw}`);
-    return false;
+    return { success: false, replacement: null };
   }
 
-  const remainingWords  = raw.slice(matchedKeyword.length).trim();
+  // Slice the full conjugated word, not just the base keyword
+  const fullMatch       = raw.match(new RegExp("^" + matchedKeyword + "(?:s|ed|ing)?"));
+  const remainingWords  = raw.slice(fullMatch[0].length).trim();
   const caller          = F90.getCallerCharacter();
 
+  // No active caller
   if (!caller)
   {
     log("Loadout > handleActCommand: no caller found.");
-    return false;
+    return { success: false, replacement: null };
   }
 
   const { item, receiver } = parseActItemReceiver(remainingWords);
 
+  let failure = null;
+
   switch(action)
   {
-    case "take": return takeItem(caller, item, receiver);
-    case "drop": return dropItem(caller, item);
-    case "give": return giveItem(caller, item, receiver);
-    case "hurl": return hurlItem(caller, item);
+    case "take": failure = takeItem(caller, item, receiver);  break;
+    case "drop": failure = dropItem(caller, item);            break;
+    case "give": failure = giveItem(caller, item, receiver);  break;
+    case "hurl": failure = hurlItem(caller, item);            break;
   }
 
-  return false;
+  // null = success, string = failure narrative
+  return failure 
+    ? { success: false, replacement: failure }
+    : { success: true,  replacement: null };
 }
 
 // =============
@@ -726,16 +720,41 @@ function handleActCommand(actText)
 // Handle the input logic
 function handleLoadoutInput()
 {
-  log("F90 > input: executing...");
-  const snapShot  = F90.getTextSnapshot();
-  const actMatch  = snapShot.match(new RegExp(LOADOUT_CONFIG.ACT_PREFIX + "[^\\n]*", "i"));
+  // Sync state from cards before processing any commands
+  state.f90.characters.forEach(c => readLoadoutFromCard(c));
 
-  if (actMatch)
+  const snapShot  = F90.getTextSnapshot();
+  const prefix = LOADOUT_CONFIG.ACT_PREFIX;
+  const actPattern = new RegExp(prefix + ".+?(?=" + prefix + "|[,\\n]|\\s+(?:and|then|but)\\s+|$)", "gi");
+  
+  // Find ALL act_ commands in input, not just the first
+  const actMatches = [...snapShot.matchAll(actPattern)]; 
+
+  for (const match of actMatches)
   {
-    const success = handleActCommand(actMatch[0].trim());
-    if (success) text = snapShot.replace(LOADOUT_CONFIG.ACT_PREFIX, "");
+    const matched                   = match[0].trim();
+    const { success, replacement }  = handleActCommand(matched);
+
+    if (success)
+    {
+      // Strip act_ prefix from this specific command in current text
+      F90.setText(text.replace(matched, matched.slice(prefix.length)));
+    }
+    else if (replacement)
+    {
+      // Replace with failure narrative in current text.
+      replaceActText(matched, replacement);
+      // First failure cancels remaining commands - pre-beat planning interrupted
+      break;
+    }
+    else
+    {
+      // Unknown action or no caller - silent stop
+      break;
+    }
   }
 
+  // Handle loadout commands seperately
   const cmdMatch = snapShot.match(/loadout[^\n]*/i);
   if (cmdMatch) parseLoadoutCommand(cmdMatch[0].trim());
 }
@@ -743,7 +762,6 @@ function handleLoadoutInput()
 // handle the context logic
 function handleLoadoutContext()
 {
-  log("F90 > context: executing...");
   state.f90.characters.forEach(c =>
   {
     // Sync data from card
