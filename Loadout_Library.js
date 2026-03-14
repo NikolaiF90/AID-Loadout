@@ -324,16 +324,29 @@ const LOADOUT_CONFIG =
     back:       "Back",
     foot:       "Foot",
   },
+  SLOT_ALIASES:
+  {
+    headwear:   ["head", "headwear", "hat"],
+    outfit:     ["body", "outfit", "uniform", "torso", "chest"],
+    armor:      ["armor", "armour"],
+    leftHand:   ["left hand", "offhand"],
+    rightHand:  ["right hand", "mainhand"],
+    back:       ["back", "shoulder", "bag"],
+    foot:       ["foot", "feet", "footwear", "boots"],
+  },
 }
 
 // Inventory action keywords.
 const LOADOUT_ACT_KEYWORDS =
 {
-  take:  ["take", "grab", "pick up", "collect", "retrieve", "get", "acquire", "tuck"],
-  drop:  ["drop", "discard", "throw away", "leave", "abandon", "let go of", "put down", "release"],
-  give:  ["give", "hand", "pass", "offer", "deliver", "transfer", "slide", "shove"],
-  hurl:  ["throw", "toss", "hurl", "fling", "chuck", "lob"],
+  take:     ["take", "grab", "pick up", "collect", "retrieve", "get", "acquire", "tuck", "store"],
+  drop:     ["drop", "discard", "throw away", "leave", "abandon", "let go of", "put down", "release"],
+  give:     ["give", "hand", "pass", "offer", "deliver", "transfer", "slide", "shove"],
+  hurl:     ["throw", "toss", "hurl", "fling", "chuck", "lob"],
+  equip:    ["wear", "equip", "put on", "don"],
 }
+
+// === FRAME ===
 
 // Initializes LOADOUT. Ensures F90 is ready first.
 function initLoadout()
@@ -354,98 +367,6 @@ function initLoadoutCharacter(name)
   };
 }
 
-// Strips everything from the first stop word onwards.
-// Returns the clean item name.
-function extractItem(raw)
-{
-  const pattern = new RegExp(`\\s+(${LOADOUT_CONFIG.ACT_STOP_WORDS.join("|")})\\s+.*$`, "i");
-
-  return raw
-    .replace(/^(the|a|an|some|my|your|his|her|their)\s+/i, "")
-    .replace(/[.,!?"]+$/, "")
-    .replace(/^[a-zA-Z]+'s\s+/i, "")
-    .replace(pattern, "")
-    .trim();
-}
-
-// Handles loadout commands from player input.
-// Supported: loadout add/name, loadout remove/name
-function parseLoadoutCommand(input)
-{
-  log("F90 > parseLoadoutCommand: executing...");
-  const match = input.match(/loadout\s+(\w+)(?:\/(.+))?/i);
-  if (!match) return;
-
-  const action = match[1].toLowerCase();
-  const arg = match[2]?.trim().replace(/[.,!?"]+$/, "") || "";
-
-  log(`F90 > parseLoadoutCommand: action = ${action}`);
-
-  switch(action)
-  {
-    case "add":
-      if (!arg) { F90.notify("Loadout: name required. Usage: loadout add/name"); return; }
-
-      F90.createCharacter(initLoadoutCharacter(arg))
-        ? F90.notify(`${arg} added to Loadout.`)
-        : F90.notify(`${arg} already exists.`);
-      break;
-
-    case "remove":
-      if (!arg) { F90.notify("Loadout: name required. Usage: loadout remove/name"); return; }
-
-      const character = F90.findCharacter(arg);
-      if (character)
-      {
-        removeLoadoutCard(character);
-        F90.deleteCharacter(arg)
-          ? F90.notify(`${arg} removed from Loadout.`)
-          : F90.notify(`${arg} not found.`);
-      }
-      else
-      {
-        F90.notify(`${arg} not found.`);
-      }
-      break;
-
-    default:
-      F90.notify(`Unknown loadout command: ${action}`);
-  }
-}
-
-// Returns the story card for a character. Creates one if USE_DEFAULT_CARD is true and it doesn't exist.
-// Returns null if no card found and USE_DEFAULT_CARD is false.
-function getLoadoutCard(character)
-{
-  const existing = F90.findCard(character.name);
-  if (existing) return existing;
-
-  if (!LOADOUT_CONFIG.USE_DEFAULT_CARD)
-  {
-    log(`Loadout > getLoadoutCard: no card found for ${character.name}.`);
-    return null;
-  }
-
-  storyCards.push(
-  {
-    title:        character.name,
-    type:         "Other",
-    keys:         "",
-    entry:        "",
-    description:  "",
-  });
-
-  return F90.findCard(character.name);
-}
-
-// Removes the story card for a character. Only removes if USE_DEFAULT_CARD is true.
-// If false, the card belongs to the user — we don't touch it.
-function removeLoadoutCard(character)
-{
-  if (!LOADOUT_CONFIG.USE_DEFAULT_CARD) return;
-  F90.deleteCard(character.name);
-}
-
 // Builds the Loadout block content for a character.
 function buildLoadoutBlock(character)
 {
@@ -457,6 +378,8 @@ function buildLoadoutBlock(character)
 
   return `[Loadout]\n${slots}\n\nInventory:\n${items}\n[/Loadout]`;
 }
+
+// === CARD ===
 
 // Writes the Loadout block into the character's card notes.
 // If [Loadout][/Loadout] tags exist, rewrites only between them.
@@ -524,6 +447,41 @@ function readLoadoutFromCard(character)
 
   return true;
 }
+
+// Returns the story card for a character. Creates one if USE_DEFAULT_CARD is true and it doesn't exist.
+// Returns null if no card found and USE_DEFAULT_CARD is false.
+function getLoadoutCard(character)
+{
+  const existing = F90.findCard(character.name);
+  if (existing) return existing;
+
+  if (!LOADOUT_CONFIG.USE_DEFAULT_CARD)
+  {
+    log(`Loadout > getLoadoutCard: no card found for ${character.name}.`);
+    return null;
+  }
+
+  storyCards.push(
+  {
+    title:        character.name,
+    type:         "Other",
+    keys:         "",
+    entry:        "",
+    description:  "",
+  });
+
+  return F90.findCard(character.name);
+}
+
+// Removes the story card for a character. Only removes if USE_DEFAULT_CARD is true.
+// If false, the card belongs to the user — we don't touch it.
+function removeLoadoutCard(character)
+{
+  if (!LOADOUT_CONFIG.USE_DEFAULT_CARD) return;
+  F90.deleteCard(character.name);
+}
+
+// === INTERACTION ===
 
 function takeItem(caller, item, receiver)
 {
@@ -604,6 +562,225 @@ function hurlItem(caller, item)
   return null;
 }
 
+// === EQUIP ===
+
+function resolveSlot(target)
+{
+  const t = target.toLowerCase().trim();
+
+  let matched = null;
+
+  // First pass - check exact alias matches across all slots
+  for (const [key, aliases] of Object.entries(LOADOUT_CONFIG.SLOT_ALIASES))
+  {
+    for (const alias of aliases)
+    {
+      if (t === alias.toLowerCase())
+      {
+        // Two different slots share the same alias - ambiguous, bail out
+        if (matched && matched !== key)
+        {
+          log(`Loadout > resolveSlot: ambiguous target "${target}`);
+
+          return null;
+        }
+
+        matched = key;
+        break
+      }
+    }
+  }
+
+  // Second pass - if no alias matched, try partial match against slot labels
+  if (!matched)
+  {
+    const partialMatches = [];
+
+    for (const [key, label] of Object.entries(LOADOUT_CONFIG.SLOTS))
+    {
+      // Target contains label or label contains target
+      if (label.toLowerCase().includes(t) || t.includes(label.toLowerCase()))
+        partialMatches.push(key);
+    }
+
+    // More than one slot matched partially - ambiguous, bail out
+    if (partialMatches.length > 1)
+    {
+      log(`Loadout > resolveSlot: ambiguous partial match "${target}`);
+
+      return null;
+    }
+
+    matched = partialMatches[0] || null;
+  }
+
+  return matched;
+}
+
+function equipItem(caller, item, slotKey)
+{
+  // Slot key must resolvebefore we do anything
+  if (!slotKey)
+    return `look around, unsure where to put the ${item}.`;
+
+  const idx = caller.inventory.findIndex(i => i.toLowerCase() === item.toLowerCase())
+
+  // Item not in inventory
+  if (idx === -1)
+    return `about to take out something but realize it's nowhere to be found.`;
+  
+  const displaced = caller.slots[slotKey];
+
+  // Remove item from inventory
+  caller.inventory.splice(idx, 1);
+
+  // If slot was occupied, move displaced item to inventory
+  if (displaced)
+    caller.inventory.push(displaced);
+
+  // Put item in slot
+  caller.slots[slotKey] = item;
+
+  writeLoadoutToCard(caller);
+
+  return null;
+}
+
+// === TEXT ===
+
+function handleActCommand(actText)
+{
+  // Raw command e.g act_give
+  const raw = actText.slice(LOADOUT_CONFIG.ACT_PREFIX.length).trim().toLowerCase();
+
+  let action          = null;
+  let matchedKeyword  = null;
+
+  for (const [actionType, keywords] of Object.entries(LOADOUT_ACT_KEYWORDS))
+  {
+    for (const keyword of keywords)
+    {
+      // Word boundary check - allows natural verb conjugations (hands, handing, handed)
+      if (new RegExp("^" + keyword + "(?:s|ed|ing)?(?:\\s|$)").test(raw))
+      {
+        action         = actionType;
+        matchedKeyword = keyword;
+
+        break;
+      }
+    }
+    if (action) break;
+  }
+
+  // No matching action keyword found
+  if (!action)
+  {
+    log(`Loadout > handleActCommand: unknown action — ${raw}`);
+    return { success: false, replacement: null };
+  }
+
+  // Slice the full conjugated word, not just the base keyword
+  const fullMatch       = raw.match(new RegExp("^" + matchedKeyword + "(?:s|ed|ing)?"));
+  const remainingWords  = raw.slice(fullMatch[0].length).trim();
+  const caller          = F90.getCallerCharacter();
+
+  // No active caller
+  if (!caller)
+  {
+    log("Loadout > handleActCommand: no caller found.");
+    return { success: false, replacement: null };
+  }
+
+  const { item, receiver } = action === "equip" 
+    ? { item: null, receiver: null }
+    : parseActItemReceiver(remainingWords);
+
+  const equipData = action === "equip"
+    ? parseActEquip(remainingWords)
+    : null;
+
+  let failure = null;
+
+  switch(action)
+  {
+    case "take": failure = takeItem(caller, item, receiver);  break;
+    case "drop": failure = dropItem(caller, item);            break;
+    case "give": failure = giveItem(caller, item, receiver);  break;
+    case "hurl": failure = hurlItem(caller, item);            break;
+    case "equip":
+      // Ambiguous slot - player needs to be more specific
+      if (equipData.ambiguous)
+        failure = `look down at the ${equipData.item}, unsure exactly where to put it.`;
+      else
+        failure = equipItem(caller, equipData.item, equipData.slotKey);
+      break;
+  }
+
+  // null = success, string = failure narrative
+  return failure 
+    ? { success: false, replacement: failure }
+    : { success: true,  replacement: null };
+}
+
+// Handles loadout commands from player input.
+// Supported: loadout add/name, loadout remove/name
+function parseLoadoutCommand(input)
+{
+  log("F90 > parseLoadoutCommand: executing...");
+  const match = input.match(/loadout\s+(\w+)(?:\/(.+))?/i);
+  if (!match) return;
+
+  const action = match[1].toLowerCase();
+  const arg = match[2]?.trim().replace(/[.,!?"]+$/, "") || "";
+
+  log(`F90 > parseLoadoutCommand: action = ${action}`);
+
+  switch(action)
+  {
+    case "add":
+      if (!arg) { F90.notify("Loadout: name required. Usage: loadout add/name"); return; }
+
+      F90.createCharacter(initLoadoutCharacter(arg))
+        ? F90.notify(`${arg} added to Loadout.`)
+        : F90.notify(`${arg} already exists.`);
+      break;
+
+    case "remove":
+      if (!arg) { F90.notify("Loadout: name required. Usage: loadout remove/name"); return; }
+
+      const character = F90.findCharacter(arg);
+      if (character)
+      {
+        removeLoadoutCard(character);
+        F90.deleteCharacter(arg)
+          ? F90.notify(`${arg} removed from Loadout.`)
+          : F90.notify(`${arg} not found.`);
+      }
+      else
+      {
+        F90.notify(`${arg} not found.`);
+      }
+      break;
+
+    default:
+      F90.notify(`Unknown loadout command: ${action}`);
+  }
+}
+
+// Strips everything from the first stop word onwards.
+// Returns the clean item name.
+function extractItem(raw)
+{
+  const pattern = new RegExp(`\\s+(${LOADOUT_CONFIG.ACT_STOP_WORDS.join("|")})\\s+.*$`, "i");
+
+  return raw
+    .replace(/^(the|a|an|some|my|your|his|her|their)\s+/i, "")
+    .replace(/[.,!?"]+$/, "")
+    .replace(/^[a-zA-Z]+'s\s+/i, "")
+    .replace(pattern, "")
+    .trim();
+}
+
 // Parses item and optional receiver from remaining act_ text.
 // "sword to Barbara" → { item: "sword", receiver: "Barbara" }
 // "sword"            → { item: "sword", receiver: null }
@@ -652,70 +829,36 @@ function replaceActText(matched, replacement)
   F90.setText(text.replace(matched, replacement));
 }
 
-function handleActCommand(actText)
+function parseActEquip(remainingText)
 {
-  // Raw command e.g act_give
-  const raw = actText.slice(LOADOUT_CONFIG.ACT_PREFIX.length).trim().toLowerCase();
+  const t = remainingText.toLowerCase().trim();
 
-  let action          = null;
-  let matchedKeyword  = null;
+  // Positioning keys - explicit slot targeting
+  const positionMatch = t.match(/^(.+?)\s+(?:on|in|as|at|over)\s+(.+)$/);
 
-  for (const [actionType, keywords] of Object.entries(LOADOUT_ACT_KEYWORDS))
+  if (positionMatch)
   {
-    for (const keyword of keywords)
-    {
-      // Word boundary check - allows natural verb conjugations (hands, handing, handed)
-      if (new RegExp("^" + keyword + "(?:s|ed|ing)?(?:\\s|$)").test(raw))
-      {
-        action         = actionType;
-        matchedKeyword = keyword;
+    const item    = extractItem(positionMatch[1]);
+    const target  = positionMatch[2].trim()
+      .replace(/^(my|your|his|her|their|the)\s+/i, "")
+      .replace(/[.,!?"]+$/, "");
+    const slotKey = resolveSlot(target);
 
-        break;
-      }
-    }
-    if (action) break;
+    // Target was specified, but couldnt resolve - notify player
+    if (!slotKey)
+      return { item, slotKey: null, ambiguous: true };
+
+    return { item, slotKey, ambiguous: false };
   }
 
-  // No matching action keyword found
-  if (!action)
-  {
-    log(`Loadout > handleActCommand: unknown action — ${raw}`);
-    return { success: false, replacement: null };
-  }
+  // No positioning key - attempt inference from item name
+  const item    = extractItem(t);
+  const slotKey = resolveSlot(item);
 
-  // Slice the full conjugated word, not just the base keyword
-  const fullMatch       = raw.match(new RegExp("^" + matchedKeyword + "(?:s|ed|ing)?"));
-  const remainingWords  = raw.slice(fullMatch[0].length).trim();
-  const caller          = F90.getCallerCharacter();
-
-  // No active caller
-  if (!caller)
-  {
-    log("Loadout > handleActCommand: no caller found.");
-    return { success: false, replacement: null };
-  }
-
-  const { item, receiver } = parseActItemReceiver(remainingWords);
-
-  let failure = null;
-
-  switch(action)
-  {
-    case "take": failure = takeItem(caller, item, receiver);  break;
-    case "drop": failure = dropItem(caller, item);            break;
-    case "give": failure = giveItem(caller, item, receiver);  break;
-    case "hurl": failure = hurlItem(caller, item);            break;
-  }
-
-  // null = success, string = failure narrative
-  return failure 
-    ? { success: false, replacement: failure }
-    : { success: true,  replacement: null };
+  return { item, slotKey, ambiguous: false };
 }
 
-// =============
-//    HOOK
-// =============
+// === HOOK ===
 
 // Handle the input logic
 function handleLoadoutInput()
