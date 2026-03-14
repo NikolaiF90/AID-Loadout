@@ -344,6 +344,7 @@ const LOADOUT_ACT_KEYWORDS =
   give:     ["give", "hand", "pass", "offer", "deliver", "transfer", "slide", "shove"],
   hurl:     ["throw", "toss", "hurl", "fling", "chuck", "lob"],
   equip:    ["wear", "equip", "put on", "don"],
+  unequip:  ["take off", "unequip", "remove", "doff", "unwear"],
 }
 
 // === FRAME ===
@@ -646,6 +647,26 @@ function equipItem(caller, item, slotKey)
   return null;
 }
 
+function unequipItem(caller, item)
+{
+  // Find which slot currently holds this item
+  const slotKey = Object.keys(caller.slots).find(
+    k => caller.slots[k] && caller.slots[k].toLowerCase() === item.toLowerCase()
+  );
+
+  // Item not found in any alot
+  if (!slotKey)
+    return `reach for ${item} to take it off, but realize it isn't equipped.`;
+
+  // Move item from slot to inventory
+  caller.inventory.push(caller.slots[slotKey]);
+  caller.slots[slotKey] = null;
+
+  writeLoadoutToCard(caller);
+
+  return null;
+}
+
 // === TEXT ===
 
 function handleActCommand(actText)
@@ -656,20 +677,26 @@ function handleActCommand(actText)
   let action          = null;
   let matchedKeyword  = null;
 
+  // Flatten all keywords across all sections, sort longest first
+  const allKeywords = [];
+  
   for (const [actionType, keywords] of Object.entries(LOADOUT_ACT_KEYWORDS))
   {
     for (const keyword of keywords)
-    {
-      // Word boundary check - allows natural verb conjugations (hands, handing, handed)
-      if (new RegExp("^" + keyword + "(?:s|ed|ing)?(?:\\s|$)").test(raw))
-      {
-        action         = actionType;
-        matchedKeyword = keyword;
+      allKeywords.push({ actionType, keyword});
+  }
+  allKeywords.sort((a, b) => b.keyword.length - a.keyword.length);
 
-        break;
-      }
+  for (const { actionType, keyword} of allKeywords)
+  {
+    // Word boundary check - allows natural verb conjugations (hands, handing, handed)
+    if (new RegExp("^" + keyword + "(?:s|ed|ing)?(?:\\s|$)").test(raw))
+    {
+      action         = actionType;
+      matchedKeyword = keyword;
+
+      break;
     }
-    if (action) break;
   }
 
   // No matching action keyword found
@@ -714,6 +741,7 @@ function handleActCommand(actText)
       else
         failure = equipItem(caller, equipData.item, equipData.slotKey);
       break;
+    case "unequip": failure = unequipItem(caller, item); break;
   }
 
   // null = success, string = failure narrative
@@ -726,14 +754,11 @@ function handleActCommand(actText)
 // Supported: loadout add/name, loadout remove/name
 function parseLoadoutCommand(input)
 {
-  log("F90 > parseLoadoutCommand: executing...");
   const match = input.match(/loadout\s+(\w+)(?:\/(.+))?/i);
   if (!match) return;
 
   const action = match[1].toLowerCase();
   const arg = match[2]?.trim().replace(/[.,!?"]+$/, "") || "";
-
-  log(`F90 > parseLoadoutCommand: action = ${action}`);
 
   switch(action)
   {
