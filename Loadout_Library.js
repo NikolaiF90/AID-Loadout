@@ -326,13 +326,13 @@ const LOADOUT_CONFIG =
   },
   SLOT_ALIASES:
   {
-    headwear:   ["head", "headwear", "hat"],
-    outfit:     ["body", "outfit", "uniform", "torso", "chest"],
-    armor:      ["armor", "armour"],
-    leftHand:   ["left hand", "offhand"],
-    rightHand:  ["right hand", "mainhand"],
-    back:       ["back", "shoulder", "bag"],
-    foot:       ["foot", "feet", "footwear", "boots"],
+    headwear:   ["head", "headwear", "hat", "cap", "helmet", "hood", "crown", "mask"],
+    outfit:     ["body", "outfit", "uniform", "torso", "chest", "shirt", "jacket", "coat", "robe", "dress", "tunic"],
+    armor:      ["armor", "armour", "plate", "chestplate", "vest", "breastplate"],
+    leftHand:   ["left hand", "offhand", "left", "shield"],
+    rightHand:  ["right hand", "mainhand", "right", "sword hand"],
+    back:       ["back", "shoulder", "cape", "cloak", "pack", "sling", "bag"],
+    foot:       ["foot", "feet", "footwear", "boots", "boot", "shoe", "shoes", "sandal", "sandals"],
   },
 }
 
@@ -343,9 +343,14 @@ const LOADOUT_ACT_KEYWORDS =
   drop:     ["drop", "discard", "throw away", "leave", "abandon", "let go of", "put down", "release"],
   give:     ["give", "hand", "pass", "offer", "deliver", "transfer", "slide", "shove"],
   hurl:     ["throw", "toss", "hurl", "fling", "chuck", "lob"],
-  equip:    ["wear", "equip", "put on", "don"],
+  equip:    ["wear", "equip", "put on", "don", "carry"],
   unequip:  ["take off", "unequip", "remove", "doff", "unwear"],
 }
+
+// Pre built flat keyword list, sorted longest first
+const LOADOUT_ACT_FLAT = Object.entries(LOADOUT_ACT_KEYWORDS)
+  .flatMap(([actionType, keywords]) => keywords.map(keyword => ({ actionType, keyword })))
+  .sort((a, b) => b.keyword.length - a.keyword.length);
 
 // === FRAME ===
 
@@ -677,17 +682,7 @@ function handleActCommand(actText)
   let action          = null;
   let matchedKeyword  = null;
 
-  // Flatten all keywords across all sections, sort longest first
-  const allKeywords = [];
-  
-  for (const [actionType, keywords] of Object.entries(LOADOUT_ACT_KEYWORDS))
-  {
-    for (const keyword of keywords)
-      allKeywords.push({ actionType, keyword});
-  }
-  allKeywords.sort((a, b) => b.keyword.length - a.keyword.length);
-
-  for (const { actionType, keyword} of allKeywords)
+  for (const { actionType, keyword} of LOADOUT_ACT_FLAT)
   {
     // Word boundary check - allows natural verb conjugations (hands, handing, handed)
     if (new RegExp("^" + keyword + "(?:s|ed|ing)?(?:\\s|$)").test(raw))
@@ -792,17 +787,32 @@ function parseLoadoutCommand(input)
   }
 }
 
-// Strips everything from the first stop word onwards.
-// Returns the clean item name.
-function extractItem(raw)
+function cleanText(raw)
 {
-  const pattern = new RegExp(`\\s+(${LOADOUT_CONFIG.ACT_STOP_WORDS.join("|")})\\s+.*$`, "i");
-
+  // Strips articles, possesstives, and trailing punctuation from raw string
   return raw
     .replace(/^(the|a|an|some|my|your|his|her|their)\s+/i, "")
     .replace(/[.,!?"]+$/, "")
     .replace(/^[a-zA-Z]+'s\s+/i, "")
+    .trim();
+}
+
+function extractItem(raw)
+{
+  // Strips everything from the first stop word onwards.
+  const pattern = new RegExp(`\\s+(${LOADOUT_CONFIG.ACT_STOP_WORDS.join("|")})\\s+.*$`, "i");
+  
+  // Clean first, then strip stop words
+  return cleanText(raw)
     .replace(pattern, "")
+    .trim();
+}
+
+function extractReceiver(match)
+{
+  // Strips trailing noise from a potential receiver name
+  return cleanText(match[2])
+    .replace(/\s+(too|also|as well|instead|either|then|now)$/i, "")
     .trim();
 }
 
@@ -817,14 +827,6 @@ function parseActItemReceiver(remainingText)
 
   let raw      = remainingText;
   let receiver = null;
-
-  const extractReceiver = (match) =>
-  {
-    return match[2].trim()
-      .replace(/[.,!?"]+$/, "")
-      .replace(/\s+(too|also|as well|instead|either|then|now)$/i, "")
-      .trim();
-  }
 
   if (toMatch)
   {
@@ -864,9 +866,7 @@ function parseActEquip(remainingText)
   if (positionMatch)
   {
     const item    = extractItem(positionMatch[1]);
-    const target  = positionMatch[2].trim()
-      .replace(/^(my|your|his|her|their|the)\s+/i, "")
-      .replace(/[.,!?"]+$/, "");
+    const target  = cleanText(positionMatch[2].trim());
     const slotKey = resolveSlot(target);
 
     // Target was specified, but couldnt resolve - notify player
@@ -876,9 +876,21 @@ function parseActEquip(remainingText)
     return { item, slotKey, ambiguous: false };
   }
 
-  // No positioning key - attempt inference from item name
-  const item    = extractItem(t);
-  const slotKey = resolveSlot(item);
+  // No positioning key - attempt inference from item name word by word
+  const item  = extractItem(t);
+  const words = item.split(" ");
+  let slotKey = null;
+
+  for (const word of words)
+  {
+    // Try each word until one resolves a slot
+    const resolved = resolveSlot(word);
+    if (resolved)
+    {
+      slotKey = resolved;
+      break;
+    }
+  }
 
   return { item, slotKey, ambiguous: false };
 }
